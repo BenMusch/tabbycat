@@ -26,7 +26,7 @@
 {% endblock %}
 
 {% block page-subnav-actions %}
-    <a class="btn btn-success" href="{% tournament_url adjfeedback-add-index %}">Add Feedback</a>
+  <a class="btn btn-success" href="{% tournament_url adjfeedback-add-index %}">Add Feedback</a>
 {% endblock %}
 
 {% block content %}
@@ -49,6 +49,7 @@
               {% if pref.show_institutions %}
                 <th>Institution</th>
               {% endif %}
+              <th><span class="glyphicon glyphicon-zoom-in"></th>
             </tr>
           </thead>
           <tbody>
@@ -58,7 +59,7 @@
                 {{ team.coverage }}<span class="visible-xs"> </span>%
               </td>
               <td class="">
-                {{ team.owed_ballots }}
+                {{ team.missing_ballots|length }}
               </td>
               <td class="">
                 {{ team.submitted_ballots }}
@@ -71,6 +72,16 @@
                   <span class="hidden-xs">{{ team.institution }}</span><span class="visible-xs">{{ team.institution.code }}</span>
                 </td>
               {% endif %}
+              <td>
+                {% if team.missing_ballots|length > 0 %}
+                  <a data-toggle="collapse" data-target="#team{{ team.id }}">View Missing</a>
+                  <ul class="collapse" id="team{{ team.id }}">
+                    {% for mb in team.missing_ballots %}
+                      <li>{{ mb }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -114,6 +125,9 @@
                 </td>
                 <td class="">
                   {{ entity.institution.name }} {{ entity.test }}
+                </td>
+                <td>
+                  View Missing
                 </td>
               </tr>
               {% endif %}

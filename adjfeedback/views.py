@@ -22,7 +22,7 @@ from utils.views import *
 
 from .models import AdjudicatorFeedback, AdjudicatorTestScoreHistory
 from .forms import make_feedback_form_class
-from .utils import gather_adj_feedback, gather_adj_scores
+from .utils import gather_adj_feedback, gather_adj_scores, get_feedback_progress
 
 @admin_required
 @tournament_view
@@ -404,52 +404,6 @@ def set_adj_breaking_status(request, t):
 
     adjudicator.save()
     return HttpResponse("ok")
-
-
-def get_feedback_progress(request, t):
-    def calculate_coverage(submitted, total):
-        if total == 0 or submitted == 0:
-            return 0 # avoid divide-by-zero error
-        else:
-            return int(submitted / total * 100)
-
-    feedback = AdjudicatorFeedback.objects.select_related('source_adjudicator__adjudicator','source_team__team').all()
-    adjudicators = Adjudicator.objects.filter(tournament=t)
-    adjudications = list(DebateAdjudicator.objects.select_related('adjudicator','debate').all())
-    teams = Team.objects.filter(tournament=t)
-
-    # Teams only owe feedback on non silent rounds
-    rounds_owed = t.round_set.filter(silent=False,  draw_status=t.current_round.STATUS_RELEASED).count()
-
-    for adj in adjudicators:
-        adj.total_ballots = 0
-        adj.submitted_feedbacks = feedback.filter(source_adjudicator__adjudicator = adj)
-        adjs_adjudications = [a for a in adjudications if a.adjudicator == adj]
-
-        for item in adjs_adjudications:
-            # Finding out the composition of their panel, tallying owed ballots
-            if item.type == item.TYPE_CHAIR:
-                adj.total_ballots += len(item.debate.adjudicators.trainees)
-                adj.total_ballots += len(item.debate.adjudicators.panel)
-
-            if item.type == item.TYPE_PANEL:
-                # Panelists owe on chairs
-                adj.total_ballots += 1
-
-            if item.type == item.TYPE_TRAINEE:
-                # Trainees owe on chairs
-                adj.total_ballots += 1
-
-        adj.submitted_ballots = max(adj.submitted_feedbacks.count(), 0)
-        adj.owed_ballots = max((adj.total_ballots - adj.submitted_ballots), 0)
-        adj.coverage = min(calculate_coverage(adj.submitted_ballots, adj.total_ballots), 100)
-
-    for team in teams:
-        team.submitted_ballots = max(feedback.filter(source_team__team = team).count(), 0)
-        team.owed_ballots = max((rounds_owed - team.submitted_ballots), 0)
-        team.coverage = min(calculate_coverage(team.submitted_ballots, rounds_owed), 100)
-
-    return { 'teams': teams, 'adjs': adjudicators }
 
 
 @admin_required

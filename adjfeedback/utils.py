@@ -1,4 +1,7 @@
-
+from .models import AdjudicatorFeedback
+from adjallocation.models import DebateAdjudicator
+from participants.models import Adjudicator, Team
+from tournaments.models import Round
 
 def gather_adj_feedback(adj, all_rounds, adj_feedbacks, all_debate_adjudicators):
 
@@ -64,3 +67,71 @@ def gather_adj_scores(adj, adj_scores, debate_adjudications):
         adj.avg_score = None
         adj.avg_margin = None
         return adj
+
+def calculate_coverage(submitted, unsubmitted):
+    if submitted is 0:
+        return 0 
+    elif unsubmitted is 0:
+        return 100
+    else:
+        return int(submitted / unsubmitted * 100)
+
+def get_feedback_progress(request, t):
+    adjudicators = Adjudicator.objects.filter(tournament=t)
+    adjudications = list(DebateAdjudicator.objects.select_related(
+        'adjudicator', 'debate', 'debate__round').filter(
+        debate__round__stage=Round.STAGE_PRELIMINARY))
+
+    feedback = AdjudicatorFeedback.objects.select_related(
+        'source_adjudicator__adjudicator', 'source_adjudicator__debate', 'source_adjudicator__debate__round',
+        'source_team__team').all()
+
+    for adj in adjudicators:
+        adj.total_ballots = 0
+        adj.submitted_feedbacks = feedback.filter(source_adjudicator__adjudicator = adj)
+        adjs_adjudications = [a for a in adjudications if a.adjudicator == adj]
+
+        for item in adjs_adjudications:
+            # Finding out the composition of their panel, tallying owed ballots
+            if item.type == item.TYPE_CHAIR:
+                adj.total_ballots += len(item.debate.adjudicators.trainees)
+                adj.total_ballots += len(item.debate.adjudicators.panel)
+
+            if item.type == item.TYPE_PANEL:
+                # Panelists owe on chairs
+                adj.total_ballots += 1
+
+            if item.type == item.TYPE_TRAINEE:
+                # Trainees owe on chairs
+                adj.total_ballots += 1
+
+        adj.submitted_ballots = max(adj.submitted_feedbacks.count(), 0)
+        adj.owed_ballots = max((adj.total_ballots - adj.submitted_ballots), 0)
+        adj.coverage = min(calculate_coverage(adj.submitted_ballots, adj.total_ballots), 100)
+
+    # Teams only owe feedback on non silent and non break rounds
+    rounds_owed = t.round_set.filter(silent=False, stage=Round.STAGE_PRELIMINARY)
+    teams = Team.objects.filter(tournament=t)
+    for team in teams:
+        team_feedback = feedback.filter(source_team__team = team)
+        team_debate_feedback = [f.debate for f in team_feedback]
+
+        team.missing_ballots = []
+        team.submitted_ballots = 0
+
+        for debate in team.debates:
+            if debate.round not in rounds_owed:
+                pass
+            elif debate in team_debate_feedback:
+                print("    %s IS in feedback" % debate)
+                team.submitted_ballots += 1
+            elif debate not in team_debate_feedback:
+                print("    %s NOT in feedback" % debate)
+                team.missing_ballots.append("%s: %s" % (debate.round.abbreviation, debate.chair.name))
+            else:
+                print("shouldnt happen")
+
+        team.coverage = min(calculate_coverage(team.submitted_ballots, len(team.missing_ballots)), 100)
+        print("----")
+
+    return { 'teams': teams, 'adjs': adjudicators }
